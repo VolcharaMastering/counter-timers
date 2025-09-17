@@ -4,9 +4,11 @@ import { devtools } from "zustand/middleware";
 import { createSingleTimeout } from "../utils/createSingleTimeout";
 import { createSingleInterval } from "../utils/createSingleInterval";
 
-const idleTimeout = createSingleTimeout(); // 10s idle detector
-const pauseTimeouts: Record<number, ReturnType<typeof createSingleTimeout>> = {};
+const decrementTimeout = createSingleTimeout(); // 10s idle detector
 const decrementInterval = createSingleInterval(); // 1s decrement loop
+const pauseTimeouts: Record<number, ReturnType<typeof createSingleTimeout>> = {};
+
+let decrementIntervalRunning = false;
 
 export const useCounterStore = create<CounterState>()(
     devtools(
@@ -14,66 +16,95 @@ export const useCounterStore = create<CounterState>()(
             counterValue: 0,
             isActiveRecently: false,
             isPaused: {},
-
-            // mark that user did an action; restart the 10s idle watcher
             registerActivity: () => {
-                // set activity flag and stop any auto-decrement in progress
-                set({ isActiveRecently: true });
+                set({ isActiveRecently: true }, false, { type: "registerActivity" });
+
                 decrementInterval.clear();
+                decrementIntervalRunning = false;
 
-                // start 10s timer; when it comes to 0, we mark inactive and start auto-decrement
-                idleTimeout.start(() => {
-                    set({ isActiveRecently: false });
+                // restart timer for 10s of inactivity
+                decrementTimeout.start(() => {
+                    set({ isActiveRecently: false }, false, { type: "decrementTimeout" });
 
-                    // start decrement interval; inside callback we check flags and value
-                    decrementInterval.start(() => {
-                        const { counterValue, isActiveRecently, isPaused, reset } = get();
+                    if (!decrementIntervalRunning) {
+                        decrementIntervalRunning = true;
 
-                        // if activity resumed stop decrementing
-                        if (isActiveRecently || Object.values(isPaused).some((v) => v)) {
-                            decrementInterval.clear();
-                            return;
-                        }
+                        decrementInterval.start(() => {
+                            const { counterValue, isActiveRecently, isPaused } = get();
 
-                        // if reached 0 then stop interval
-                        if (counterValue <= 0) {
-                            reset();
-                            return;
-                        }
-                        console.log("Auto-decrementing", counterValue);
-                        // decrement by 1
-                        set({ counterValue: Math.max(0, counterValue - 1) });
-                    }, 1000);
-                }, 10_000); // 10 seconds
+                            // If button pressed, restart decrement
+                            if (isActiveRecently || Object.values(isPaused).some((v) => v)) {
+                                return;
+                            }
+
+                            if (counterValue <= 0) {
+                                decrementInterval.clear();
+                                decrementIntervalRunning = false;
+                                return;
+                            }
+
+                            set(
+                                { counterValue: Math.max(0, counterValue - 1) },
+                                // Credits to devtools history
+                                false,
+                                {
+                                    type: "decrement",
+                                    value: 1,
+                                }
+                            );
+                        }, 1000);
+                    }
+                }, 10_000);
             },
 
-            // increment — blocked while isPaused (adjust if you still want increments during pause)
+            // button pressed, increment counter and pause button
             increment: (value: number) => {
                 const { isPaused } = get();
-                if (isPaused[value]) return; // ignore increment while temporary paused
+                if (isPaused[value]) return; // ignore if already paused
 
-                set((state) => ({
-                    counterValue: state.counterValue + value,
-                    isPaused: { ...state.isPaused, [value]: true },
-                }));
+                get().registerActivity();
+
+                set(
+                    (state) => ({
+                        counterValue: state.counterValue + value,
+                        isPaused: { ...state.isPaused, [value]: true },
+                    }),
+                    // Credits to devtools history
+                    false,
+                    {
+                        type: "increment",
+                        value,
+                    }
+                );
+
+                // individual timeout manager for each button
                 if (!pauseTimeouts[value]) {
                     pauseTimeouts[value] = createSingleTimeout();
                 }
 
+                // pause button: value * 500 мс
                 pauseTimeouts[value].start(() => {
-                    set((state) => ({
-                        isPaused: { ...state.isPaused, [value]: false },
-                    }));
-                }, value * 500); // pause for half the button value in seconds
-                console.log("Paused", value);
-                get().registerActivity();
+                    set(
+                        (state) => ({
+                            isPaused: { ...state.isPaused, [value]: false },
+                        }),
+                        false,
+                        { type: "unpause", value }
+                    );
+                }, value * 500);
             },
 
-            // reset everything (useful for tests)
+            // reset all state
             reset: () => {
-                idleTimeout.clear();
+                decrementTimeout.clear();
                 decrementInterval.clear();
-                set({ counterValue: 0, isActiveRecently: false, isPaused: {} });
+                decrementIntervalRunning = false;
+
+                Object.values(pauseTimeouts).forEach((t) => t.clear());
+
+                set({ counterValue: 0, isActiveRecently: false, isPaused: {} }, false, {
+                    type: "reset",
+                });
             },
         }),
         { name: "countersStore" }

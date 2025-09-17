@@ -1,9 +1,9 @@
 interface CounterState {
     counterValue: number;
-    isActiveRecently: boolean; // Button pressed and value true for 10s
+    isActiveRecently: boolean;
     isPaused: Record<number, boolean>;
+
     registerActivity: () => void;
-    pauseFor: (ms: number) => void;
-    increment: (by: number) => void;
+    increment: (value: number) => void;
     reset: () => void;
 }
