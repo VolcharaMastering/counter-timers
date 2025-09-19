@@ -1,12 +1,16 @@
-import { useCounterStore } from "../../stores/countersStore";
+import { memo } from "react";
 import "./Counter.scss";
 
-const Counter: React.FC = () => {
-    const counterValue = useCounterStore((s) => s.counterValue);
+type PropsCounter = {
+    counterValue: number;
+};
+
+const Counter: React.FC<PropsCounter> = ({ counterValue }) => {
     return (
         <section className="counter">
             <p className="counter__value">{counterValue}</p>
         </section>
     );
 };
-export default Counter;
+
+export default memo(Counter);

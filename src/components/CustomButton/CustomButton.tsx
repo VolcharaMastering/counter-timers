@@ -1,23 +1,30 @@
-import { useCounterStore } from "../../stores/countersStore";
+import { memo, useState } from "react";
 import "./CustomButton.scss";
 
 type PropsButton = {
     value: number;
+    setCounter: (value: number) => void;
 };
-const CustomButton: React.FC<PropsButton> = ({ value }) => {
-    const increment = useCounterStore((s) => s.increment);
-    const isPaused = useCounterStore((s) => s.isPaused[value]);
+
+const CustomButton: React.FC<PropsButton> = ({ value, setCounter }) => {
+    const [disabled, setDisabled] = useState(false);
+
+    const handleClick = () => {
+        if (disabled) return;
+        setCounter(value);
+        setDisabled(true);
+        setTimeout(() => setDisabled(false), value * 500);
+    };
     return (
         <button
-            className={`button ${isPaused ? "disabled" : ""}`}
+            className={`button ${disabled ? "disabled" : ""}`}
             type="button"
-            onClick={() => {
-                increment(value);
-            }}
-            disabled={isPaused}
+            onClick={handleClick}
+            disabled={disabled}
         >
             {value}
         </button>
     );
 };
-export default CustomButton;
+
+export default memo(CustomButton);
